@@ -180,12 +180,26 @@ ShellRoot {
       service.resumeFingerprint()
       check(retry.running && retry.interval === 40000, "a wake keeps the capped wait so fprintd still gets its idle window")
 
+      // The blank countdown would drive the real displays, so it is stopped
+      // whenever the resume path arms it.
+      var resumeTimer = timer(service, 2000, false)
+      var blankTimer = timer(service, 5000, false)
       service.pauseFingerprint()
       service.noteSleepRequested()
-      service.resumeFingerprint()
+      check(resumeTimer.running, "the lock request before a suspend waits for the machine to run again")
+      resumeTimer.stop()
+      resumeTimer.triggered()
+      blankTimer.stop()
+      check(!service.fingerprintPaused, "a resume with no input still brings the reader back")
       check(retry.running && retry.interval === 250, "a wake after a sleep while blank recovers at once")
       check(service.fingerprintUnreachedStreak === 0, "a sleep while blank opens the resume grace")
       retry.stop()
+      service.pauseFingerprint()
+      service.noteSleepRequested()
+      service.resetAuthenticationState()
+      check(!resumeTimer.running, "unlock reset drops a pending resume")
+      service.lockRequested = true
+      service.fingerprintConfigured = true
       service.pauseFingerprint()
 
       service.lockRequested = false

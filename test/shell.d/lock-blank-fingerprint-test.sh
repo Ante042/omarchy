@@ -40,4 +40,9 @@ assert(
   /function lock\(\): string \{[^}]*if \(root\.currentlyLocked\(\)\) root\.noteSleepRequested\(\)/.test(serviceQml),
   'the lock request made before every suspend marks a sleep while the reader is paused'
 )
+
+assert(
+  /function onScreensChanged\(\) \{[\s\S]*?if \(screens > root\.knownScreenCount\) \{\s*root\.resumeFingerprint\(\)\s*if \(root\.lockRequested\) root\.armBlankTimer\(\)/.test(serviceQml),
+  'only a display arriving wakes the reader, and the blank countdown starts over'
+)
 JS

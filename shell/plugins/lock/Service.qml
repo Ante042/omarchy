@@ -38,6 +38,8 @@ Item {
   // The sleep watch is stopped while paused, so the pre-suspend lock request
   // marks the sleep instead.
   property bool fingerprintSleptWhilePaused: false
+  // Outputs the lock last saw, so only a display arriving counts as a wake.
+  property int knownScreenCount: 0
   property bool previewVisible: false
   property string enteredPassword: ""
   property string pendingPassword: ""
@@ -211,6 +213,7 @@ Item {
     fingerprintRecheckTimer.stop()
     fingerprintRetryTimer.stop()
     fingerprintReachTimer.stop()
+    fingerprintResumeTimer.stop()
     if (passwordPam.active) passwordPam.abort()
     if (fingerprintPam.active) fingerprintPam.abort()
   }
@@ -284,8 +287,13 @@ Item {
     if (lockRequested && fingerprintConfigured && !fingerprintAuthenticating) fingerprintRetryTimer.restart()
   }
 
+  // A resume can light the panel with no input to wake the lock, so the reader
+  // comes back once the machine is running again; the blank countdown then
+  // pauses it again if nothing else happens.
   function noteSleepRequested() {
-    if (lockRequested && fingerprintPaused) fingerprintSleptWhilePaused = true
+    if (!lockRequested || !fingerprintPaused) return
+    fingerprintSleptWhilePaused = true
+    fingerprintResumeTimer.restart()
   }
 
   // User activity advances retries without recreating a busy retry loop.
@@ -662,6 +670,19 @@ Item {
     }
   }
 
+  // Timers stand still through a suspend, so this fires only once the machine
+  // runs again (or two seconds on, when the suspend never happened).
+  Timer {
+    id: fingerprintResumeTimer
+    interval: 2000
+    repeat: false
+    onTriggered: {
+      if (!root.lockRequested || !root.fingerprintPaused) return
+      root.resumeFingerprint()
+      root.armBlankTimer()
+    }
+  }
+
   Timer {
     id: fingerprintReachTimer
     interval: FingerprintModel.REACH_TIMEOUT_MS
@@ -834,7 +855,12 @@ Item {
       // for, so the blank state has to be given up here or a visible lock
       // wallpaper stays frozen until the next keypress.
       root.displaysBlank = false
-      root.resumeFingerprint()
+      var screens = root.realScreenCount()
+      if (screens > root.knownScreenCount) {
+        root.resumeFingerprint()
+        if (root.lockRequested) root.armBlankTimer()
+      }
+      root.knownScreenCount = screens
       root.requestSessionLock()
 
       // A monitor still coming up has no workspace, so cannot answer yet.
@@ -870,6 +896,7 @@ Item {
   }
 
   Component.onCompleted: {
+    knownScreenCount = realScreenCount()
     refreshBackground()
     refreshFingerprintStatus()
     checkStrandedLock()
