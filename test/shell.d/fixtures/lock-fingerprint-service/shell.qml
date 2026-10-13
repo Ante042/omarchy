@@ -154,16 +154,38 @@ ShellRoot {
       var sleepWatch = timer(service, 1000, true)
       service.fingerprintConfigured = true
       service.fingerprintUnreachedStreak = 0
+      // Close the resume grace an earlier check opened, so misses count again.
+      service.fingerprintResumedAtMs = 0
       service.fingerprintAuthenticating = true
-      retry.start()
+      service.fingerprintAttemptReachedDevice = false
       reach.start()
-      check(sleepWatch.running, "the sleep watch runs while the reader is armed")
       service.pauseFingerprint()
-      check(service.fingerprintPaused && !service.fingerprintAuthenticating, "blanking closes the attempt")
-      check(!retry.running && !reach.running && !sleepWatch.running, "nothing keeps a timer running while the displays are off")
-      check(service.fingerprintUnreachedStreak === 0, "a pause is not counted as a missed attempt")
+      check(service.fingerprintAuthenticating && reach.running, "blanking lets a claim in progress finish under its reach bound")
+      check(sleepWatch.running, "the sleep watch covers an attempt still running while blank")
+      service.fingerprintAttemptReachedDevice = true
+      service.settleFingerprintAttempt()
+      check(!retry.running && !sleepWatch.running, "once that attempt ends nothing runs while the displays are off")
       service.resumeFingerprint()
-      check(!service.fingerprintPaused && sleepWatch.running, "a wake arms the reader again")
+      check(retry.running && retry.interval === 250 && sleepWatch.running, "a wake arms the next attempt and the sleep watch")
+      retry.stop()
+
+      for (var j = 0; j < 8; j++) {
+        service.fingerprintAuthenticating = true
+        service.fingerprintAttemptReachedDevice = false
+        service.settleFingerprintAttempt()
+      }
+      check(retry.interval === 40000, "a failing reader is at its capped wait")
+      service.pauseFingerprint()
+      check(!retry.running, "blanking stops the backed-off retry")
+      service.resumeFingerprint()
+      check(retry.running && retry.interval === 40000, "a wake keeps the capped wait so fprintd still gets its idle window")
+
+      service.pauseFingerprint()
+      service.noteSleepRequested()
+      service.resumeFingerprint()
+      check(retry.running && retry.interval === 250, "a wake after a sleep while blank recovers at once")
+      check(service.fingerprintUnreachedStreak === 0, "a sleep while blank opens the resume grace")
+      retry.stop()
       service.pauseFingerprint()
 
       service.lockRequested = false

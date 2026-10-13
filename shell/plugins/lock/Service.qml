@@ -32,9 +32,12 @@ Item {
   property double fingerprintLastSettleMs: 0
   property double fingerprintResumedAtMs: 0
   property int fingerprintProbeStreak: 0
-  // While the lock has the displays off, the reader is left alone instead of
-  // being held awake all night; any wake starts it again.
+  // While the lock has the displays off no new attempt starts, so the reader
+  // isn't held awake all night; any wake starts it again.
   property bool fingerprintPaused: false
+  // The sleep watch is stopped while paused, so the pre-suspend lock request
+  // marks the sleep instead.
+  property bool fingerprintSleptWhilePaused: false
   property bool previewVisible: false
   property string enteredPassword: ""
   property string pendingPassword: ""
@@ -204,6 +207,7 @@ Item {
     fingerprintResumedAtMs = 0
     fingerprintProbeStreak = 0
     fingerprintPaused = false
+    fingerprintSleptWhilePaused = false
     fingerprintRecheckTimer.stop()
     fingerprintRetryTimer.stop()
     fingerprintReachTimer.stop()
@@ -259,21 +263,29 @@ Item {
     nudgeFingerprint()
   }
 
-  // abort() delivers no completion signal, and a pause is no failed attempt,
-  // so the attempt is closed here without counting it or arming a retry.
+  // An attempt already running is left to finish under its own timeouts, so
+  // a slow claim still completes; only the next one waits for a wake.
   function pauseFingerprint() {
     if (fingerprintPaused) return
     fingerprintPaused = true
     fingerprintRetryTimer.stop()
-    fingerprintReachTimer.stop()
-    if (fingerprintPam.active) fingerprintPam.abort()
-    fingerprintAuthenticating = false
   }
 
+  // The retry keeps whatever backoff was armed, so a failing reader still gets
+  // its idle window; after a sleep it recovers at once, as the sleep watch does.
   function resumeFingerprint() {
     if (!fingerprintPaused) return
     fingerprintPaused = false
-    startFingerprint()
+    if (fingerprintSleptWhilePaused) {
+      fingerprintSleptWhilePaused = false
+      noteFingerprintResumed()
+      fingerprintRetryTimer.interval = FingerprintModel.MATCH_RETRY_MS
+    }
+    if (lockRequested && fingerprintConfigured && !fingerprintAuthenticating) fingerprintRetryTimer.restart()
+  }
+
+  function noteSleepRequested() {
+    if (lockRequested && fingerprintPaused) fingerprintSleptWhilePaused = true
   }
 
   // User activity advances retries without recreating a busy retry loop.
@@ -300,7 +312,7 @@ Item {
 
   function armFingerprintRetry(delayMs) {
     fingerprintRetryTimer.interval = delayMs
-    fingerprintRetryTimer.restart()
+    if (!fingerprintPaused) fingerprintRetryTimer.restart()
   }
 
   // Reset pre-sleep failures while the resume hook restarts fprintd.
@@ -639,7 +651,7 @@ Item {
     id: fingerprintSleepWatch
     interval: 1000
     repeat: true
-    running: root.lockRequested && root.fingerprintConfigured && !root.fingerprintPaused
+    running: root.lockRequested && root.fingerprintConfigured && (!root.fingerprintPaused || root.fingerprintAuthenticating)
     property double lastTickMs: 0
     onRunningChanged: lastTickMs = Date.now()
     onTriggered: {
@@ -868,6 +880,8 @@ Item {
 
     function lock(): string {
       if (!root.passwordPamConfigured) return "missing-pam"
+      // omarchy-system-sleep-lock asks for the lock before every suspend.
+      if (root.currentlyLocked()) root.noteSleepRequested()
       if (!root.currentlyLocked() && !root.beginLock()) return "failed"
       return "ok"
     }

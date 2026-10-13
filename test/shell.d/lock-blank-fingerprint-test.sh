@@ -35,4 +35,9 @@ assert(
     /function runWake\(\) \{[^}]*resumeFingerprint\(\)/.test(serviceQml),
   'blanking the displays leaves the reader alone and waking them arms it again'
 )
+
+assert(
+  /function lock\(\): string \{[^}]*if \(root\.currentlyLocked\(\)\) root\.noteSleepRequested\(\)/.test(serviceQml),
+  'the lock request made before every suspend marks a sleep while the reader is paused'
+)
 JS
