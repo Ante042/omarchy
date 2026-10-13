@@ -32,6 +32,9 @@ Item {
   property double fingerprintLastSettleMs: 0
   property double fingerprintResumedAtMs: 0
   property int fingerprintProbeStreak: 0
+  // While the lock has the displays off, the reader is left alone instead of
+  // being held awake all night; any wake starts it again.
+  property bool fingerprintPaused: false
   property bool previewVisible: false
   property string enteredPassword: ""
   property string pendingPassword: ""
@@ -200,6 +203,7 @@ Item {
     fingerprintLastSettleMs = 0
     fingerprintResumedAtMs = 0
     fingerprintProbeStreak = 0
+    fingerprintPaused = false
     fingerprintRecheckTimer.stop()
     fingerprintRetryTimer.stop()
     fingerprintReachTimer.stop()
@@ -251,7 +255,25 @@ Item {
     root.monitorDpmsKnown = false
     if (!wakeProcess.running) wakeProcess.running = true
     if (lockRequested) armBlankTimer()
+    resumeFingerprint()
     nudgeFingerprint()
+  }
+
+  // abort() delivers no completion signal, and a pause is no failed attempt,
+  // so the attempt is closed here without counting it or arming a retry.
+  function pauseFingerprint() {
+    if (fingerprintPaused) return
+    fingerprintPaused = true
+    fingerprintRetryTimer.stop()
+    fingerprintReachTimer.stop()
+    if (fingerprintPam.active) fingerprintPam.abort()
+    fingerprintAuthenticating = false
+  }
+
+  function resumeFingerprint() {
+    if (!fingerprintPaused) return
+    fingerprintPaused = false
+    startFingerprint()
   }
 
   // User activity advances retries without recreating a busy retry loop.
@@ -305,6 +327,7 @@ Item {
   function runBlank() {
     root.displaysBlank = true
     root.monitorDpmsKnown = false
+    pauseFingerprint()
     if (!blankProcess.running) blankProcess.running = true
   }
 
@@ -366,7 +389,7 @@ Item {
   }
 
   function startFingerprint() {
-    if (!lockRequested || !sessionLock.secure || !fingerprintConfigured) return
+    if (!lockRequested || !sessionLock.secure || !fingerprintConfigured || fingerprintPaused) return
     if (fingerprintPam.active || fingerprintAuthenticating) return
 
     fingerprintAuthenticating = true
@@ -616,7 +639,7 @@ Item {
     id: fingerprintSleepWatch
     interval: 1000
     repeat: true
-    running: root.lockRequested && root.fingerprintConfigured
+    running: root.lockRequested && root.fingerprintConfigured && !root.fingerprintPaused
     property double lastTickMs: 0
     onRunningChanged: lastTickMs = Date.now()
     onTriggered: {
@@ -799,6 +822,7 @@ Item {
       // for, so the blank state has to be given up here or a visible lock
       // wallpaper stays frozen until the next keypress.
       root.displaysBlank = false
+      root.resumeFingerprint()
       root.requestSessionLock()
 
       // A monitor still coming up has no workspace, so cannot answer yet.

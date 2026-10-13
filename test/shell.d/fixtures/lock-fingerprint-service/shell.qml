@@ -149,9 +149,27 @@ ShellRoot {
       check(!service.fingerprintAuthenticating && !reach.running, "the reach bound closes a stuck attempt")
       check(service.lockRequested, "a timeout never unlocks")
 
+      // runBlank and runWake would drive the real displays, so the pause they
+      // call is exercised directly.
+      var sleepWatch = timer(service, 1000, true)
+      service.fingerprintConfigured = true
+      service.fingerprintUnreachedStreak = 0
+      service.fingerprintAuthenticating = true
+      retry.start()
+      reach.start()
+      check(sleepWatch.running, "the sleep watch runs while the reader is armed")
+      service.pauseFingerprint()
+      check(service.fingerprintPaused && !service.fingerprintAuthenticating, "blanking closes the attempt")
+      check(!retry.running && !reach.running && !sleepWatch.running, "nothing keeps a timer running while the displays are off")
+      check(service.fingerprintUnreachedStreak === 0, "a pause is not counted as a missed attempt")
+      service.resumeFingerprint()
+      check(!service.fingerprintPaused && sleepWatch.running, "a wake arms the reader again")
+      service.pauseFingerprint()
+
       service.lockRequested = false
       service.resetAuthenticationState()
       check(!retry.running && !reach.running && !recheck.running, "unlock reset stops every fingerprint timer")
+      check(!service.fingerprintPaused, "unlock reset clears a pause so the next lock starts the reader")
       service.applyFingerprintProbe("Daemon is restarting")
       check(!recheck.running, "an unknown probe outside the lock cannot restart it")
     } finally {
