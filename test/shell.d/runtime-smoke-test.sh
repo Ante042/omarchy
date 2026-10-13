@@ -611,6 +611,15 @@ if (( worst > screens - 1 )); then
 fi
 pass "each widget registers its IPC handler once per screen"
 
+# The platform FileViews (audio hints, display cutouts) must load without a
+# binding loop: a binding that reads text() and the flag its own load
+# handlers write loops on every shell start.
+if grep -q 'Binding loop detected for property "hints"\|Binding loop detected for property "displayCutouts"' "$log"; then
+  grep "Binding loop" "$log" | sed 's/^/  /' | head -5 >&2
+  fail_with_log "shell start has no platform FileView binding loops"
+fi
+pass "shell start has no platform FileView binding loops"
+
 HOME="$test_home" OMARCHY_PATH="$test_root" PATH="$ROOT/bin:$PATH" "$ROOT/bin/omarchy-plugin-disable" omarchy.audio
 
 for _ in {1..80}; do
