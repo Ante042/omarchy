@@ -21,9 +21,17 @@ ShellRoot {
   function timer(service, interval, repeat) {
     var objects = service.data || []
     for (var i = 0; i < objects.length; i++) {
-      if (objects[i].interval === interval && objects[i].repeat === repeat) return objects[i]
+      if (objects[i].interval === interval && objects[i].repeat === repeat && objects[i].ticksLeft === undefined) return objects[i]
     }
     throw new Error("Missing timer: " + interval + ", repeat=" + repeat)
+  }
+
+  function resumeWatch(service) {
+    var objects = service.data || []
+    for (var i = 0; i < objects.length; i++) {
+      if (objects[i].ticksLeft !== undefined) return objects[i]
+    }
+    throw new Error("Missing resume watch")
   }
 
   function run() {
@@ -175,21 +183,32 @@ ShellRoot {
         service.settleFingerprintAttempt()
       }
       check(retry.interval === 40000, "a failing reader is at its capped wait")
+      var streak = service.fingerprintUnreachedStreak
       service.pauseFingerprint()
       check(!retry.running, "blanking stops the backed-off retry")
       service.resumeFingerprint()
       check(retry.running && retry.interval === 40000, "a wake keeps the capped wait so fprintd still gets its idle window")
+      check(service.fingerprintUnreachedStreak === streak && streak > 0, "pause and wake keep the miss history")
 
       // The blank countdown would drive the real displays, so it is stopped
       // whenever the resume path arms it.
-      var resumeTimer = timer(service, 2000, false)
+      var resumeTimer = resumeWatch(service)
       var blankTimer = timer(service, 5000, false)
+      retry.stop()
       service.pauseFingerprint()
       service.noteSleepRequested()
-      check(resumeTimer.running, "the lock request before a suspend waits for the machine to run again")
-      resumeTimer.stop()
+      check(resumeTimer.running, "a lock request while blank watches for a sleep")
+      for (var k = 0; k < 15; k++) {
+        resumeTimer.lastTickMs = Date.now()
+        resumeTimer.triggered()
+      }
+      check(!resumeTimer.running && service.fingerprintPaused && !retry.running, "a repeated lock with no sleep, as the idle service makes, leaves the reader paused")
+
+      service.noteSleepRequested()
+      resumeTimer.lastTickMs = Date.now() - 60000
       resumeTimer.triggered()
       blankTimer.stop()
+      check(!resumeTimer.running, "the watch ends once it sees the sleep")
       check(!service.fingerprintPaused, "a resume with no input still brings the reader back")
       check(retry.running && retry.interval === 250, "a wake after a sleep while blank recovers at once")
       check(service.fingerprintUnreachedStreak === 0, "a sleep while blank opens the resume grace")

@@ -35,8 +35,8 @@ Item {
   // While the lock has the displays off no new attempt starts, so the reader
   // isn't held awake all night; any wake starts it again.
   property bool fingerprintPaused: false
-  // The sleep watch is stopped while paused, so the pre-suspend lock request
-  // marks the sleep instead.
+  // The sleep watch is stopped while paused, so a sleep seen after the
+  // pre-suspend lock request is marked here instead.
   property bool fingerprintSleptWhilePaused: false
   // Outputs the lock last saw, so only a display arriving counts as a wake.
   property int knownScreenCount: 0
@@ -287,12 +287,14 @@ Item {
     if (lockRequested && fingerprintConfigured && !fingerprintAuthenticating) fingerprintRetryTimer.restart()
   }
 
-  // A resume can light the panel with no input to wake the lock, so the reader
-  // comes back once the machine is running again; the blank countdown then
-  // pauses it again if nothing else happens.
+  // A resume can light the panel with no input to wake the lock, so after a
+  // lock request the reader comes back once a sleep is seen; the blank
+  // countdown then pauses it again if nothing else happens. The idle service
+  // repeats the same request without sleeping, so the sleep has to be seen.
   function noteSleepRequested() {
     if (!lockRequested || !fingerprintPaused) return
-    fingerprintSleptWhilePaused = true
+    fingerprintResumeTimer.ticksLeft = 15
+    fingerprintResumeTimer.lastTickMs = Date.now()
     fingerprintResumeTimer.restart()
   }
 
@@ -670,16 +672,26 @@ Item {
     }
   }
 
-  // Timers stand still through a suspend, so this fires only once the machine
-  // runs again (or two seconds on, when the suspend never happened).
+  // Timers stand still through a suspend, so the first tick after a resume
+  // sees the wall clock jump. Runs only for the seconds after a lock request.
   Timer {
     id: fingerprintResumeTimer
-    interval: 2000
-    repeat: false
+    interval: 1000
+    repeat: true
+    property int ticksLeft: 0
+    property double lastTickMs: 0
     onTriggered: {
-      if (!root.lockRequested || !root.fingerprintPaused) return
-      root.resumeFingerprint()
-      root.armBlankTimer()
+      var now = Date.now()
+      var slept = FingerprintModel.spannedSleep(now - lastTickMs, interval)
+      lastTickMs = now
+      if (slept && root.lockRequested && root.fingerprintPaused) {
+        stop()
+        root.fingerprintSleptWhilePaused = true
+        root.resumeFingerprint()
+        root.armBlankTimer()
+      } else if (slept || !root.fingerprintPaused || --ticksLeft <= 0) {
+        stop()
+      }
     }
   }
 
