@@ -187,8 +187,12 @@ ShellRoot {
       service.pauseFingerprint()
       check(!retry.running, "blanking stops the backed-off retry")
       service.resumeFingerprint()
-      check(retry.running && retry.interval === 40000, "a wake keeps the capped wait so fprintd still gets its idle window")
+      check(retry.running && retry.interval > 39000, "a wake keeps the capped wait so fprintd still gets its idle window")
       check(service.fingerprintUnreachedStreak === streak && streak > 0, "pause and wake keep the miss history")
+      service.pauseFingerprint()
+      service.fingerprintRetryDueMs = Date.now() - 1000
+      service.resumeFingerprint()
+      check(retry.running && retry.interval === 250, "a wait that ran out while blank retries at once on wake")
 
       // The blank countdown would drive the real displays, so it is stopped
       // whenever the resume path arms it.
@@ -198,7 +202,7 @@ ShellRoot {
       service.pauseFingerprint()
       service.noteSleepRequested()
       check(resumeTimer.running, "a lock request while blank watches for a sleep")
-      for (var k = 0; k < 15; k++) {
+      for (var k = 0; k < 20; k++) {
         resumeTimer.lastTickMs = Date.now()
         resumeTimer.triggered()
       }

@@ -38,6 +38,8 @@ Item {
   // The sleep watch is stopped while paused, so a sleep seen after the
   // pre-suspend lock request is marked here instead.
   property bool fingerprintSleptWhilePaused: false
+  // When the armed retry is due, so time spent blank counts toward it.
+  property double fingerprintRetryDueMs: 0
   // Outputs the lock last saw, so only a display arriving counts as a wake.
   property int knownScreenCount: 0
   property bool previewVisible: false
@@ -274,8 +276,9 @@ Item {
     fingerprintRetryTimer.stop()
   }
 
-  // The retry keeps whatever backoff was armed, so a failing reader still gets
-  // its idle window; after a sleep it recovers at once, as the sleep watch does.
+  // The retry keeps whatever backoff was armed, counting the time spent blank,
+  // so a failing reader still gets its idle window; after a sleep it recovers
+  // at once, as the sleep watch does.
   function resumeFingerprint() {
     if (!fingerprintPaused) return
     fingerprintPaused = false
@@ -283,6 +286,8 @@ Item {
       fingerprintSleptWhilePaused = false
       noteFingerprintResumed()
       fingerprintRetryTimer.interval = FingerprintModel.MATCH_RETRY_MS
+    } else {
+      fingerprintRetryTimer.interval = Math.max(FingerprintModel.MATCH_RETRY_MS, fingerprintRetryDueMs - Date.now())
     }
     if (lockRequested && fingerprintConfigured && !fingerprintAuthenticating) fingerprintRetryTimer.restart()
   }
@@ -293,7 +298,8 @@ Item {
   // repeats the same request without sleeping, so the sleep has to be seen.
   function noteSleepRequested() {
     if (!lockRequested || !fingerprintPaused) return
-    fingerprintResumeTimer.ticksLeft = 15
+    // logind holds a suspend for its inhibitor delay, at most 15 seconds here.
+    fingerprintResumeTimer.ticksLeft = 20
     fingerprintResumeTimer.lastTickMs = Date.now()
     fingerprintResumeTimer.restart()
   }
@@ -322,6 +328,7 @@ Item {
 
   function armFingerprintRetry(delayMs) {
     fingerprintRetryTimer.interval = delayMs
+    fingerprintRetryDueMs = Date.now() + delayMs
     if (!fingerprintPaused) fingerprintRetryTimer.restart()
   }
 
@@ -673,7 +680,8 @@ Item {
   }
 
   // Timers stand still through a suspend, so the first tick after a resume
-  // sees the wall clock jump. Runs only for the seconds after a lock request.
+  // sees the wall clock jump. Runs only for the seconds after a lock request
+  // that a suspend can take to begin.
   Timer {
     id: fingerprintResumeTimer
     interval: 1000
