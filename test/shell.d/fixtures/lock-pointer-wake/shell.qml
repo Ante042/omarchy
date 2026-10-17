@@ -58,6 +58,11 @@ ShellRoot {
         root.assertTrue(!view.pointerMovedTo(400.4, 300.2), "sub-pixel jitter does not wake")
         root.assertTrue(view.pointerMovedTo(410, 300), "moving the pointer wakes")
 
+        // Slow motion on a scaled display arrives in sub-pixel steps that add up.
+        root.assertTrue(!view.pointerMovedTo(410.4, 300), "the first sub-pixel step does not wake")
+        root.assertTrue(!view.pointerMovedTo(410.8, 300), "the second sub-pixel step does not wake")
+        root.assertTrue(view.pointerMovedTo(411.2, 300), "sub-pixel steps adding up to a pixel wake")
+
         // Leaving and re-entering, as across a hotplug, starts over.
         view.pointerLeft()
         root.assertTrue(!view.pointerMovedTo(20, 20), "first position after re-entering does not wake")

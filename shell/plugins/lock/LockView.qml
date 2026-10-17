@@ -79,8 +79,11 @@ Item {
   property real pointerX: 0
   property real pointerY: 0
 
+  // The reference holds until the pointer has gone a whole pixel from it, so
+  // slow motion on a scaled display adds up instead of every step being jitter.
   function pointerMovedTo(x, y) {
     var moved = pointerSeen && (Math.abs(x - pointerX) >= 1 || Math.abs(y - pointerY) >= 1)
+    if (pointerSeen && !moved) return false
     pointerSeen = true
     pointerX = x
     pointerY = y
