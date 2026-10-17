@@ -27,6 +27,13 @@ fi
 
 require_command jq
 
+# The fixture drives pointerMoved(); the MouseArea has to go through it rather
+# than wake on every position, or a surface mapped under a resting pointer
+# wakes the lock again.
+lock_view="$ROOT/shell/plugins/lock/LockView.qml"
+grep -q 'onPositionChanged: function(mouse) { root.pointerMoved(mouse.x, mouse.y) }' "$lock_view" ||
+  fail "the lock's MouseArea does not route pointer positions through pointerMoved()"
+
 TMPDIR=$(mktemp -d)
 result="$TMPDIR/result.json"
 log="$TMPDIR/quickshell.log"

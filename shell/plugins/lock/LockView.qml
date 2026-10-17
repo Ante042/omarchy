@@ -90,6 +90,10 @@ Item {
     return moved
   }
 
+  function pointerMoved(x, y) {
+    if (pointerMovedTo(x, y)) wakeRequested()
+  }
+
   function pointerLeft() {
     pointerSeen = false
   }
@@ -174,9 +178,7 @@ Item {
       hoverEnabled: true
       onExited: root.pointerLeft()
       onClicked: { root.wakeRequested(); root.forcePasswordFocus() }
-      onPositionChanged: function(mouse) {
-        if (root.pointerMovedTo(mouse.x, mouse.y)) root.wakeRequested()
-      }
+      onPositionChanged: function(mouse) { root.pointerMoved(mouse.x, mouse.y) }
     }
 
     BorderSurface {
